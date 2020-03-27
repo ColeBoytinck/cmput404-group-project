@@ -14,6 +14,7 @@ from social_distribution.utils.endpoint_utils import Endpoint, PagingHandler, Ha
 from social_distribution.utils.basic_auth import validate_remote_server_authentication
 
 import requests
+import base64
 
 
 # @login_required
@@ -100,10 +101,11 @@ def retrieve_single_post_with_id(request, post_id):
 
     def html_handler(request, posts, pager, pagination_uris):
         post = Post.objects.get(id=post_id)
-        #print(post.categories.all())
-        # post = get_object_or_404(Post, pk=post_id)
-        # for c in post.categories:
-        #     print(c)
+        if post.contentType == post.TYPE_PNG or post.contentType == post.TYPE_JPEG:
+            # Note, this REQUIRES that the content be in base64 format.
+            response = HttpResponse(base64.b64decode(post.content), status=200)
+            response['Content-Type'] = post.contentType
+            return response
         return render(request, 'posts/post.html', {'post': post})
 
     # Get a single post
@@ -207,6 +209,8 @@ def fetch_public_posts_from_nodes(request):
             # Remove trailing slash if there is one
             api_url = api_url[:-1]
         api_url += "/posts"
+        if node.append_slash:
+            api_url += "/"
 
         response = requests.get(api_url,
                                 auth=(node.username_registered_on_foreign_server, node.password_registered_on_foreign_server),
@@ -216,7 +220,15 @@ def fetch_public_posts_from_nodes(request):
                   f"received response code {response.status_code} at api endpoint: {api_url}")
             continue
 
-        json = response.json()
+        try:
+            json = response.json()
+        except Exception as e:
+            print("Encountered error while decoding json: " + str(e))
+            print("Response was: ")
+            print(response.content)
+            print("Ignoring...")
+            continue
+
         for post in json['posts']:
             output['count'] += 1
             output['posts'].append(post)
